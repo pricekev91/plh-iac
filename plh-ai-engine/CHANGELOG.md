@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07
+
+### Added
+
+- Lemonade Server PPA as the primary AI inference backend
+- One-command deploy: `deploy-plh-ai-engine.sh` replaces unsloth + llama.cpp pipeline
+- No CUDA toolkit install, no llama.cpp build — PPA bundles CUDA runtime
+- Config JSON for CUDA backend and model search paths
+- Health check via `/live` endpoint (Lemonade)
+
+### Changed
+
+- **BREAKING**: Port 8080 → 13305 (Lemonade Web UI)
+- **BREAKING**: Unsloth Studio → Lemonade Server
+- **BREAKING**: Removed all YAML-based platform definitions (no more `platforms/`, `inventory/`, `profiles/` dirs)
+- **BREAKING**: Removed `apply.bash` (renamed to `delete-me-apply.bash`)
+- Removed `scripts/provision-ai-appliance.bash` (replaced by deploy script)
+- Simplified: LXD project + GPU passthrough + PPA install + config
+- GPU passthrough via LXD `gpu` device (no more `libcuda.so` copy)
+
+### Removed
+
+- Unsloth Studio stack (`--no-torch` install, custom systemd unit)
+- llama.cpp from-source build (CUDA toolkit + cmake + nvcc)
+- Host `libcuda.so` copy into container (PPA bundles CUDA runtime)
+- CUDA repo/keyring setup inside container
+- `switch-model.sh` script (use `lemonade pull` CLI)
+- Port proxy configuration for Unsloth (direct LXD proxy on :13305)
+
 ## [0.2.3] - 2026-06
 
 ### Changed

@@ -3,62 +3,41 @@
 Items for future implementation. These are human-entered ideas not yet reflected
 in the codebase.
 
-## Apply Runner
-
-- Add snapshot orchestration before destructive container mutation
-- Add replacement rollout logic for platform changes
-- Add LXD project cleanup after legacy project migrations
-- Add pre-flight validation for GPU availability before apply
-- Add apply --dry-run mode that prints full reconciliation plan
-
 ## Bootstrap
 
-- Add Debian/Proxmox bootstrap script path
 - Add automated NVIDIA driver installation detection
 - Add AMD GPU driver bootstrap (amdgpu + VFIO)
 - Add LXD subid/subgid range auto-configuration for CachyOS
 
-## Inventory
+## Deploy Script
 
-- Add inventory files for additional laptop hosts
-- Add staging/development inventory environments
-- Add project_migrations cleanup automation after apply
+- Add optional `--pull-model <name>` flag to auto-download a model after deploy
+- Add `--dry-run` mode that prints what would happen
+- Add pre-flight GPU check (nvidia-smi, CUDA compute capability)
+- Add post-deploy model verification (load a test prompt)
+- Add container recreation guard (ask before nuke)
 
-## Platform Expansion
+## Model Management
 
-- Restore orchestrator platform (n8n) when n8n provisioning is ready
-- Restore agents platform (CrewAI) when CrewAI provisioning is ready
-- Add presentation platform (Open WebUI) with ollama backend support
-- Add multi-platform reconcile with inter-container networking
-
-## LXD Profiles
-
-- Add `gpu-intel.yaml` for Intel integrated GPU passthrough
-- Add `gpu-amd.yaml` for AMD GPU passthrough (gfx1150/890M)
-- Add network profile for container bridge isolation
-
-## Services
-
-- Add health check scripts for each service endpoint
-- Add service startup ordering (engine before orchestrator/agents)
-- Add graceful shutdown procedure for all services
+- Add model version pinning (avoid auto-updates breaking compat)
+- Add model size/quantization recommendations for RTX 2060M
+- Add GGUF-to-FLM conversion tooling if Lemonade adds FLM support
 
 ## Observability
 
-- Add LXD container resource usage monitoring
-- Add inference performance benchmarking script
-- Add GPU utilization monitoring dashboard
+- Add GPU utilization monitoring (nvidia-smi polling)
+- Add inference performance benchmarking
+- Add Lemonade server log tailing (`journalctl -u lemonade-server -f`)
 - Add service uptime logging
 
 ## Documentation
 
 - Add runbook for common failure scenarios (GPU passthrough, LXD connectivity)
 - Add disaster recovery procedure for host + LXD state
-- Add architecture diagram update for single-engine consolidation
-- Add inventory schema documentation
+- Add Lemonade model management quick reference
 
 ## Hardware Migration
 
-- Add AMD GPU migration path (gfx1150/890M) from NVIDIA RTX 2060M
+- Add AMD GPU migration path (gfx1150/890M) — use ROCm backend in Lemonade
 - Add ROCm compatibility testing for AMD GPUs
-- Add hardware-agnostic platform definitions
+- Add Intel GPU path (Vulkan backend in Lemonade)

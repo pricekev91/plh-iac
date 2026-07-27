@@ -4,15 +4,17 @@ Active items in progress. These are the current focus areas.
 
 ## Active
 
-- [x] Consolidated engine into single container (replaced presentation, agents, orchestrator)
-- [x] Updated inventory for single-engine + llama-direct paths
-- [x] add GPU profile support (NVIDIA, AMD, Intel YAML profiles)
-- [ ] Add snapshot orchestration before destructive container mutation
-- [ ] Add replacement rollout logic for platform changes
-- [ ] Add LXD snapshot rollback automation
+- [x] Migrated from Unsloth + llama.cpp to Lemonade Server (PPA)
+- [x] Simplified deploy: single script, no YAML, no build from source
+- [x] CUDA backend config via /etc/lemonade/config.json
+- [ ] Test deploy on actual CachyOS + LXD host
+- [ ] Verify CUDA backend works with RTX 2060M (sm_75)
+- [ ] Add model download to deploy script (optional auto-pull)
+- [ ] Add model verification after deploy
 
 ## This Week
 
-- [ ] Validate apply.bash --plan against current CachyOS host
-- [ ] Test single-engine container reconciliation with engine.yaml
-- [ ] Validate llama-direct platform (Ministral 3B via llama-server)
+- [ ] Run `./deploy-plh-ai-engine.sh` on the laptop host
+- [ ] Verify Lemonade Web UI loads at http://127.0.0.1:13305
+- [ ] Pull a model and test a chat completion
+- [ ] Verify API endpoint responds to OpenAI-compatible requests
