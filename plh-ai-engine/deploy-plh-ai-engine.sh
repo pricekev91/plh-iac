@@ -202,6 +202,10 @@ install_lemonade_ppa() {
 configure_lemonade() {
     log "Writing Lemonade config to $LEMONADE_CONFIG_FILE"
 
+    local config_dir
+    config_dir="$(dirname $LEMONADE_CONFIG_FILE)"
+    exec_in_ct_root "mkdir -p $config_dir"
+
     cat <<CFGEOF | lxc file push - --project "$PROJECT" "$CT_NAME$LEMONADE_CONFIG_FILE"
 {
   "llamacpp": {
