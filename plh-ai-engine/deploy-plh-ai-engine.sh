@@ -215,7 +215,7 @@ configure_lemonade() {
     # Use the CLI to set config — this writes ~/.config/lemonade/config.json
     # and makes Lemonade automatically detect GGUFs in /srv/ai/models.
     exec_in_ct_root "lemonade config set llamacpp.backend cuda"
-    exec_in_ct_root "lemonade config set models.path=/srv/ai/models"
+    exec_in_ct_root "lemonade config set models.path /srv/ai/models"
 
     log "Lemonade configured: CUDA backend, models path=/srv/ai/models"
 }
