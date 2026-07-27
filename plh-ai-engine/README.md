@@ -69,6 +69,10 @@ iac-plh/
 
 ## Model Management
 
+Models placed in `/srv/ai/models` on the host are bind-mounted into the
+container at `/srv/ai/models`. Lemonade auto-discovers them via
+`~/.config/lemonade/config.json` (`models.path`).
+
 Inside the container:
 ```bash
 # List available models
@@ -83,8 +87,6 @@ lemonade backends
 # Run a model directly
 lemonade run Gemma-4-E2B-it-GGUF
 ```
-
-Models placed in `/srv/ai/models` on the host are available via bind mount.
 
 ## API Usage
 

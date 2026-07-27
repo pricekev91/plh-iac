@@ -30,7 +30,6 @@ MODELS_DEVICE_NAME="models"
 
 # Ports — Lemonade
 LEMONADE_HOST_PORT="13305"
-LEMONADE_HOST_API_PORT="15005"
 
 # Systemd services
 LEMONADE_SERVICE_NAME="lemonade-server"
@@ -210,15 +209,27 @@ install_lemonade_ppa() {
 }
 
 configure_lemonade() {
-    log "Ensuring Lemonade config and model search paths"
+    log "Configuring Lemonade (CUDA backend, model paths)"
 
     # Lemonade auto-detects CUDA from the bundled runtime.
-    # If auto-detection doesn't pick it up, set it explicitly.
-    # We also add /srv/ai/models to the model search paths.
-    exec_in_ct_root "lemonade config set llamacpp.backend cuda 2>/dev/null || true"
-    exec_in_ct_root "lemonade config set model_search_paths '[\"/srv/ai/models\",\"/opt/lemonade/llama\"]' 2>/dev/null || true"
+    # Write config.json with the model directory so it picks up GGUFs.
+    local config_dir="$HOME/.config/lemonade"
+    local config_file="$config_dir/config.json"
 
-    log "Lemonade configuration set (CUDA backend, model search paths)"
+    exec_in_ct_root "mkdir -p $config_dir"
+
+    cat <<'CFGEOF' | lxc file push - --project "$PROJECT" "$CT_NAME$config_file"
+{
+  "models": {
+    "path": "/srv/ai/models"
+  },
+  "llamacpp": {
+    "backend": "cuda"
+  }
+}
+CFGEOF
+
+    log "Lemonade config written to $config_file"
 }
 
 # =============================================================================
@@ -226,52 +237,12 @@ configure_lemonade() {
 # =============================================================================
 
 ensure_lemonade_service() {
-    local unit_path="/etc/systemd/system/${LEMONADE_SERVICE_NAME}.service"
-    local unit_content
-
     log "Configuring Lemonade systemd service"
 
-    # The PPA package installs its own systemd unit, but we ensure it
-    # starts with the right env vars and uses the right host binding.
-    # First check if the PPA unit already exists and is adequate.
-    if exec_in_ct_root "systemctl cat lemonade-server.service >/dev/null 2>&1"; then
-        log "PPA systemd unit already exists, verifying..."
-
-        # Check if it binds to 0.0.0.0 (needed for LXD proxy to work)
-        local binds
-        binds="$(exec_in_ct_root "systemctl cat lemonade-server.service 2>/dev/null | grep -i 'host'" || echo '')"
-        if echo "$binds" | grep -q '0.0.0.0'; then
-            log "PPA unit already binds to 0.0.0.0 — OK"
-        else
-            log "PPA unit doesn't bind to 0.0.0.0, creating override"
-            exec_in_ct_root "systemctl edit --full lemonade-server.service 2>/dev/null || true"
-        fi
-    else
-        log "PPA unit not found, creating custom unit"
-        cat <<'UNITEOF' | lxc file push - --project "$PROJECT" "$CT_NAME$unit_path"
-[Unit]
-Description=Lemonade Server
-After=network-online.target gpu0.device
-Wants=network-online.target
-
-[Service]
-Type=simple
-Environment=HOME=/opt/lemonade
-Environment=XDG_RUNTIME_DIR=/run/lemonade
-Environment=LEMONADE_CONFIG_DIR=/etc/lemonade
-Environment=LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
-ExecStart=/usr/bin/lemond --host 0.0.0.0 --port 13305
-Restart=always
-RestartSec=5
-RuntimeDirectory=lemonade
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-UNITEOF
-        exec_in_ct_root "systemctl daemon-reload"
-    fi
-
+    # The PPA package installs its own systemd unit (lemonade-server.service).
+    # Just enable and start it — it listens on 127.0.0.1:13305 by default.
+    # LXD proxy maps that to the host.
+    exec_in_ct_root "systemctl daemon-reload"
     exec_in_ct_root "systemctl enable $LEMONADE_SERVICE_NAME"
     log "Lemonade systemd service configured and enabled"
 }
@@ -336,16 +307,6 @@ verify_endpoints() {
         warn "⚠️  Lemonade Web UI did not respond on http://127.0.0.1:$LEMONADE_HOST_PORT"
     fi
 
-    # Test API endpoint
-    log "Testing Lemonade API (host :$LEMONADE_HOST_API_PORT)..."
-    local api_resp
-    api_resp="$(curl -sf --max-time 10 http://127.0.0.1:$LEMONADE_HOST_API_PORT/api/v1/models 2>/dev/null || echo 'FAILED')"
-    if [[ "$api_resp" != "FAILED" ]]; then
-        info "✅ Lemonade API healthy at http://127.0.0.1:$LEMONADE_HOST_API_PORT"
-    else
-        warn "⚠️  Lemonade API did not respond on http://127.0.0.1:$LEMONADE_HOST_API_PORT"
-    fi
-
     # Show container status
     log ""
     lxc list --project "$PROJECT"
@@ -365,8 +326,8 @@ verify_endpoints() {
     log "Deploy complete!"
     log "========================================="
     log "  Lemonade Web UI:  http://127.0.0.1:$LEMONADE_HOST_PORT"
-    log "  Lemonade API:     http://127.0.0.1:$LEMONADE_HOST_API_PORT/api/v1"
-    log "  OpenAI compat:    curl -H \"Content-Type: application/json\" -d '{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}' http://127.0.0.1:$LEMONADE_HOST_API_PORT/v1/chat/completions"
+    log "  API:              http://127.0.0.1:$LEMONADE_HOST_PORT/api/v1"
+    log "  OpenAI compat:    curl -H \"Content-Type: application/json\" -d '{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}' http://127.0.0.1:$LEMONADE_HOST_PORT/v1/chat/completions"
     log ""
     log "  Pull a model:     lemonade pull Gemma-4-E2B-it-GGUF"
     log "  List models:      lemonade list"
