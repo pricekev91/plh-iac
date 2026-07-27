@@ -18,8 +18,9 @@ This is what is already implemented and verified in this repository.
   - Model directory bind mount (`/srv/ai/models`)
   - Installs Lemonade Server via PPA (`lemonade-team/stable`)
   - No CUDA toolkit, no llama.cpp build — PPA bundles CUDA runtime
-  - Configures `/etc/lemonade/config.json` (CUDA backend + model paths)
-  - Systemd service: `lemonade-server`
+  - Configures via `lemonade config set` (CUDA backend, models.path=/srv/ai/models)
+  - GGUF auto-discovery: models in /srv/ai/models appear in `lemonade list --downloaded`
+  - Systemd service: `lemond` (PPA unit)
   - Health check via `/live` endpoint
   - Idempotent: skips re-install if already deployed
 

@@ -70,19 +70,25 @@ iac-plh/
 ## Model Management
 
 Models placed in `/srv/ai/models` on the host are bind-mounted into the
-container at `/srv/ai/models`. Lemonade auto-discovers them via
-`~/.config/lemonade/config.json` (`models.path`).
+container at `/srv/ai/models`. Lemonade auto-discovers them when
+`models.path` is set to that directory.
 
 Inside the container:
 ```bash
-# List available models
-lemonade list
+# Set the model directory (done automatically by deploy script)
+lemonade config set models.path=/srv/ai/models
+
+# List all discovered GGUFs
+lemonade list --downloaded
 
 # Pull/download a model (auto-downloads from HuggingFace)
 lemonade pull Gemma-4-E2B-it-GGUF
 
 # Check which backends are available
 lemonade backends
+
+# Load a model into memory
+lemonade load Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
 
 # Run a model directly
 lemonade run Gemma-4-E2B-it-GGUF

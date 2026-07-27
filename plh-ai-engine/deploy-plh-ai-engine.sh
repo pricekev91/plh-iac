@@ -211,26 +211,13 @@ install_lemonade_ppa() {
 configure_lemonade() {
     log "Configuring Lemonade (CUDA backend, model paths)"
 
-    # Lemonade auto-detects CUDA from the bundled runtime.
-    # Write config.json with the model directory so it picks up GGUFs.
-    # Container root home is /root
-    local config_dir="/root/.config/lemonade"
-    local config_file="$config_dir/config.json"
+    # Lemonade auto-detects CUDA from its bundled runtime.
+    # Use the CLI to set config — this writes ~/.config/lemonade/config.json
+    # and makes Lemonade automatically detect GGUFs in /srv/ai/models.
+    exec_in_ct_root "lemonade config set llamacpp.backend cuda"
+    exec_in_ct_root "lemonade config set models.path=/srv/ai/models"
 
-    exec_in_ct_root "mkdir -p $config_dir"
-
-    cat <<'CFGEOF' | lxc file push - --project "$PROJECT" "$CT_NAME$config_file"
-{
-  "models": {
-    "path": "/srv/ai/models"
-  },
-  "llamacpp": {
-    "backend": "cuda"
-  }
-}
-CFGEOF
-
-    log "Lemonade config written to $config_file"
+    log "Lemonade configured: CUDA backend, models path=/srv/ai/models"
 }
 
 # =============================================================================

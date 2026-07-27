@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Lemonade Server PPA as the primary AI inference backend
 - One-command deploy: `deploy-plh-ai-engine.sh` replaces unsloth + llama.cpp pipeline
 - No CUDA toolkit install, no llama.cpp build — PPA bundles CUDA runtime
-- Config JSON for CUDA backend and model search paths
+- Config via `lemonade config set` CLI (CUDA backend, models.path)
+- GGUF auto-discovery: models in `/srv/ai/models` show up in `lemonade list --downloaded`
 - Health check via `/live` endpoint (Lemonade)
 
 ### Changed
