@@ -7,8 +7,8 @@ set -euo pipefail
 # One-and-done IaC deploy for the PLH AI Engine LXC container.
 #
 # Stack:
-#   - llama.cpp server (CUDA) on container :80  → host :80
-#   - Unsloth Studio UI   on container :8888  → host :8080
+#   - Unsloth Studio (manages its own llama.cpp engine)
+#     UI: host :8080 → container :8888
 #
 # Container: prod/plh-ai-engine (Ubuntu 24.04, privileged, GPU passthrough)
 # Models:    /srv/ai/models bind-mounted into container
@@ -22,33 +22,21 @@ IMAGE="ubuntu:24.04"
 MODEL_DIR_HOST="/srv/ai/models"
 MODEL_DIR_CT="/srv/ai/models"
 
-# Default model loaded by llama-server at boot (change via switch-model.sh)
-MODEL_FILE="gemma-4-E4B-it-Q4_K_M.gguf"
-
 # LXC device names
 GPU_DEVICE_NAME="gpu0"
-LLAMA_PROXY_NAME="llama-proxy"
 UNSLOTH_PROXY_NAME="unsloth-proxy"
 MODELS_DEVICE_NAME="models"
 
-# Ports
-LLAMA_CT_ADDR="127.0.0.1"
-LLAMA_CT_PORT="80"
-LLAMA_HOST_ADDR="127.0.0.1"
-LLAMA_HOST_PORT="80"
-
+# Ports — Unsloth Studio
 UNSLOTH_CT_ADDR="127.0.0.1"
 UNSLOTH_CT_PORT="8888"
 UNSLOTH_HOST_ADDR="127.0.0.1"
 UNSLOTH_HOST_PORT="8080"
 
 # Systemd services
-LLAMA_SERVICE_NAME="llama-server"
 UNSLOTH_SERVICE_NAME="unsloth-studio"
 
 # Paths
-LLAMA_BUILD_DIR="/opt/llama.cpp/build"
-LLAMA_INSTALL_MARKER="/root/.llama_cpp_installed"
 UNSLOTH_STUDIO_HOME="/root/.unsloth/studio"
 # ------------------------------------------
 
@@ -198,17 +186,6 @@ ensure_model_mount() {
 }
 
 ensure_proxy_devices() {
-    # llama.cpp proxy: host :80 → container :80
-    if ! device_exists "$LLAMA_PROXY_NAME"; then
-        log "Adding llama proxy: ${LLAMA_HOST_ADDR}:${LLAMA_HOST_PORT} → ${LLAMA_CT_ADDR}:${LLAMA_CT_PORT}"
-        lxc config device add "$CT_NAME" "$LLAMA_PROXY_NAME" proxy \
-            listen="tcp:${LLAMA_HOST_ADDR}:${LLAMA_HOST_PORT}" \
-            connect="tcp:${LLAMA_CT_ADDR}:${LLAMA_CT_PORT}" \
-            --project "$PROJECT"
-    else
-        log "llama proxy device already present: $LLAMA_PROXY_NAME"
-    fi
-
     # Unsloth Studio proxy: host :8080 → container :8888
     if ! device_exists "$UNSLOTH_PROXY_NAME"; then
         log "Adding unsloth proxy: ${UNSLOTH_HOST_ADDR}:${UNSLOTH_HOST_PORT} → ${UNSLOTH_CT_ADDR}:${UNSLOTH_CT_PORT}"
@@ -442,53 +419,6 @@ install_unsloth_studio() {
 # Systemd Services
 # =============================================================================
 
-ensure_llama_service() {
-    local unit_path="/etc/systemd/system/${LLAMA_SERVICE_NAME}.service"
-    local env_path="/etc/default/${LLAMA_SERVICE_NAME}"
-
-    log "Configuring llama-server systemd service"
-
-    # Write env file
-    cat <<ENVEOF | lxc file push - --project "$PROJECT" "$CT_NAME$env_path"
-LLAMA_MODEL='${MODEL_DIR_CT}/${MODEL_FILE}'
-LLAMA_BIND_ADDR='${LLAMA_CT_ADDR}'
-LLAMA_BIND_PORT='${LLAMA_CT_PORT}'
-CUDA_VISIBLE_DEVICES=0
-ENVEOF
-
-    # Write unit file
-    cat <<'UNITEOF' | lxc file push - --project "$PROJECT" "$CT_NAME$unit_path"
-[Unit]
-Description=llama.cpp server (CUDA)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-EnvironmentFile=-/etc/default/llama-server
-Environment=PATH=/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin
-Environment=LD_LIBRARY_PATH=/usr/lib:/usr/local/cuda/lib64
-WorkingDirectory=/opt/llama.cpp
-ExecStart=/opt/llama.cpp/build/bin/llama-server \
-    --host ${LLAMA_BIND_ADDR} \
-    --port ${LLAMA_BIND_PORT} \
-    --model ${LLAMA_MODEL} \
-    --ctx-size 8192 \
-    --threads 4 \
-    --batch-size 2048
-Restart=always
-RestartSec=5
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-UNITEOF
-
-    exec_in_ct_root "systemctl daemon-reload"
-    exec_in_ct_root "systemctl enable $LLAMA_SERVICE_NAME"
-    log "llama-server systemd service configured and enabled"
-}
-
 ensure_unsloth_service() {
     local unit_path="/etc/systemd/system/${UNSLOTH_SERVICE_NAME}.service"
     local env_path="/etc/default/${UNSLOTH_SERVICE_NAME}"
@@ -575,33 +505,12 @@ deploy_switch_model() {
 # =============================================================================
 
 start_and_verify_services() {
-    log "Starting llama-server service..."
-    exec_in_ct_root "systemctl restart $LLAMA_SERVICE_NAME" || \
-    exec_in_ct_root "systemctl start $LLAMA_SERVICE_NAME"
-
-    log "Waiting for llama-server to be ready..."
-    local waited=0
-    while (( waited < 60 )); do
-        if lxc exec "$CT_NAME" --project "$PROJECT" -- curl -sf http://127.0.0.1:$LLAMA_CT_PORT/health >/dev/null 2>&1; then
-            log "llama-server is healthy on :$LLAMA_CT_PORT"
-            break
-        fi
-        sleep 2
-        waited=$((waited + 2))
-    done
-
-    if (( waited >= 60 )); then
-        warn "llama-server health check did not respond after ${waited}s — checking service status"
-        exec_in_ct_root "systemctl status $LLAMA_SERVICE_NAME --no-pager" || true
-        exec_in_ct_root "journalctl -u $LLAMA_SERVICE_NAME --no-pager -n 20" || true
-    fi
-
     log "Starting Unsloth Studio service..."
     exec_in_ct_root "systemctl restart $UNSLOTH_SERVICE_NAME" || \
     exec_in_ct_root "systemctl start $UNSLOTH_SERVICE_NAME"
 
     log "Waiting for Unsloth Studio to be ready..."
-    waited=0
+    local waited=0
     while (( waited < 120 )); do
         local resp
         resp="$(lxc exec "$CT_NAME" --project "$PROJECT" -- curl -sf http://127.0.0.1:$UNSLOTH_CT_PORT/api/health 2>/dev/null || true)"
@@ -630,16 +539,6 @@ verify_endpoints() {
     log "Verifying endpoints from host..."
     log "========================================="
 
-    # Test llama.cpp endpoint
-    log "Testing llama.cpp (host :$LLAMA_HOST_PORT)..."
-    local llama_resp
-    llama_resp="$(curl -sf --max-time 10 http://$LLAMA_HOST_ADDR:$LLAMA_HOST_PORT/health 2>/dev/null || echo 'FAILED')"
-    if [[ "$llama_resp" != "FAILED" ]]; then
-        info "✅ llama.cpp healthy at http://$LLAMA_HOST_ADDR:$LLAMA_HOST_PORT"
-    else
-        warn "⚠️  llama.cpp did not respond on http://$LLAMA_HOST_ADDR:$LLAMA_HOST_PORT"
-    fi
-
     # Test Unsloth Studio endpoint
     log "Testing Unsloth Studio (host :$UNSLOTH_HOST_PORT)..."
     local unsloth_resp
@@ -662,23 +561,16 @@ verify_endpoints() {
 
     # Show running services inside container
     log "Services inside container:"
-    exec_in_ct_root "systemctl is-active $LLAMA_SERVICE_NAME $UNSLOTH_SERVICE_NAME" || true
-    log ""
-
-    # GPU check
-    log "GPU status inside container:"
-    exec_in_ct_root "nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv 2>/dev/null || echo 'nvidia-smi not available'"
+    exec_in_ct_root "systemctl is-active $UNSLOTH_SERVICE_NAME" || true
     log ""
 
     log "========================================="
     log "Deploy complete!"
     log "========================================="
-    log "  llama.cpp API:    http://127.0.0.1:$LLAMA_HOST_PORT"
     log "  Unsloth Studio:   http://127.0.0.1:$UNSLOTH_HOST_PORT"
     log ""
     log "  Stop container:   lxc stop $CT_NAME --project $PROJECT"
     log "  Start container:  lxc start $CT_NAME --project $PROJECT"
-    log "  Switch model:     lxc exec $CT_NAME --project $PROJECT -- /usr/local/bin/switch-model.sh <model.gguf>"
     log "========================================="
 }
 
@@ -744,7 +636,6 @@ main() {
     install_unsloth_studio
 
     # --- Systemd services ---
-    ensure_llama_service
     ensure_unsloth_service
 
     # --- Deploy helper scripts ---
