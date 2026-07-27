@@ -31,8 +31,8 @@ MODELS_DEVICE_NAME="models"
 # Ports — Lemonade
 LEMONADE_HOST_PORT="13305"
 
-# Systemd services
-LEMONADE_SERVICE_NAME="lemonade-server"
+# Systemd services — PPA installs as lemond.service
+LEMONADE_SERVICE_NAME="lemond"
 
 # Paths
 LEMONADE_HOME="/opt/lemonade"
@@ -213,7 +213,8 @@ configure_lemonade() {
 
     # Lemonade auto-detects CUDA from the bundled runtime.
     # Write config.json with the model directory so it picks up GGUFs.
-    local config_dir="$HOME/.config/lemonade"
+    # Container root home is /root
+    local config_dir="/root/.config/lemonade"
     local config_file="$config_dir/config.json"
 
     exec_in_ct_root "mkdir -p $config_dir"
