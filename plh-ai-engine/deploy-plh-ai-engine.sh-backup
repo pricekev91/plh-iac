@@ -23,14 +23,20 @@ IMAGE="ubuntu:24.04"
 MODEL_DIR_HOST="/srv/ai/models"
 MODEL_DIR_CT="/srv/ai/models"
 
+# LXC device names
 GPU_DEVICE_NAME="gpu0"
 LEMONADE_PROXY_NAME="lemonade-proxy"
 MODELS_DEVICE_NAME="models"
 
+# Ports — Lemonade
 LEMONADE_HOST_PORT="13305"
-LEMONADE_SERVICE_NAME="lemonade-server"
 
-LEMONADE_CONFIG_FILE="/root/.config/lemonade/config.json"
+# Systemd services — PPA installs as lemond.service
+LEMONADE_SERVICE_NAME="lemond"
+
+# Paths
+LEMONADE_HOME="/opt/lemonade"
+LEMONADE_CONFIG_DIR="/etc/lemonade"
 # ------------------------------------------
 
 log()   { echo "[deploy] $*" >&2; }
@@ -81,6 +87,7 @@ ct_exists() {
 }
 
 ensure_container() {
+    # Always-nuke: destroy existing container for a clean slate
     if ct_exists; then
         log "Removing existing container: $PROJECT/$CT_NAME"
         lxc stop "$CT_NAME" --project "$PROJECT" --force >/dev/null 2>&1 || true
@@ -90,6 +97,7 @@ ensure_container() {
     log "Launching container: $PROJECT/$CT_NAME from $IMAGE"
     lxc launch "$IMAGE" "$CT_NAME" --project "$PROJECT" --profile default
 
+    # Set privileged mode (required for GPU passthrough in LXC)
     log "Setting security.privileged=true"
     lxc config set "$CT_NAME" security.privileged=true --project "$PROJECT"
 }
@@ -124,6 +132,7 @@ ensure_model_mount() {
 }
 
 ensure_proxy_devices() {
+    # Lemonade Web UI proxy: host :13305 → container :13305
     if ! device_exists "$LEMONADE_PROXY_NAME"; then
         log "Adding proxy: host :$LEMONADE_HOST_PORT → container :$LEMONADE_HOST_PORT"
         lxc config device add "$CT_NAME" "$LEMONADE_PROXY_NAME" proxy \
@@ -200,9 +209,17 @@ install_lemonade_ppa() {
 }
 
 configure_lemonade() {
-    log "Writing Lemonade config to $LEMONADE_CONFIG_FILE"
+    log "Configuring Lemonade (CUDA backend, model paths)"
 
-    cat <<CFGEOF | lxc file push - --project "$PROJECT" "$CT_NAME$LEMONADE_CONFIG_FILE"
+    # Write ~/.config/lemonade/config.json directly.
+    # The PPA CLI (lemonade config set) doesn't support dotted keys,
+    # but editing the JSON file directly is the supported approach.
+    local config_dir="/root/.config/lemonade"
+    local config_file="$config_dir/config.json"
+
+    exec_in_ct_root "mkdir -p $config_dir"
+
+    cat <<CFGEOF | lxc file push - --project "$PROJECT" "$CT_NAME$config_file"
 {
   "llamacpp": {
     "backend": "cuda"
@@ -213,7 +230,7 @@ configure_lemonade() {
 }
 CFGEOF
 
-    log "Lemonade config written to $LEMONADE_CONFIG_FILE"
+    log "Lemonade config written to $config_file"
 }
 
 # =============================================================================
@@ -223,17 +240,20 @@ CFGEOF
 ensure_lemonade_service() {
     log "Configuring Lemonade systemd service"
 
+    # The PPA package installs its own systemd unit (lemonade-server.service).
+    # Just enable and start it — it listens on 127.0.0.1:13305 by default.
+    # LXD proxy maps that to the host.
     exec_in_ct_root "systemctl daemon-reload"
     exec_in_ct_root "systemctl enable $LEMONADE_SERVICE_NAME"
-    log "Lemonade systemd service enabled"
+    log "Lemonade systemd service configured and enabled"
 }
 
 # =============================================================================
-# Start and verify
+# Start services and verify
 # =============================================================================
 
 start_and_verify_services() {
-    log "Starting Lemonade server..."
+    log "Starting Lemonade server service..."
     exec_in_ct_root "systemctl restart $LEMONADE_SERVICE_NAME" || \
     exec_in_ct_root "systemctl start $LEMONADE_SERVICE_NAME"
 
@@ -252,23 +272,24 @@ start_and_verify_services() {
     done
 
     if (( waited >= 120 )); then
-        warn "Lemonade health check failed — dumping logs"
+        warn "Lemonade health check did not respond after ${waited}s — checking service status"
         exec_in_ct_root "systemctl status $LEMONADE_SERVICE_NAME --no-pager" || true
         exec_in_ct_root "journalctl -u $LEMONADE_SERVICE_NAME --no-pager -n 30" || true
     fi
 
+    # Check the API endpoint too
     local models_resp
     models_resp="$(lxc exec "$CT_NAME" --project "$PROJECT" -- \
         curl -sf http://127.0.0.1:13305/api/v1/models 2>/dev/null || echo 'FAILED')"
     if [[ "$models_resp" != "FAILED" ]]; then
         info "API endpoint responding on :13305"
     else
-        warn "API endpoint not responding yet"
+        warn "API endpoint not responding on :13305 yet (models may need downloading)"
     fi
 }
 
 # =============================================================================
-# Final verification
+# Final verification (host-side)
 # =============================================================================
 
 verify_endpoints() {
@@ -277,23 +298,27 @@ verify_endpoints() {
     log "Verifying endpoints from host..."
     log "========================================="
 
+    # Test Lemonade Web UI endpoint
     log "Testing Lemonade Web UI (host :$LEMONADE_HOST_PORT)..."
     local lemonade_resp
     lemonade_resp="$(curl -sf --max-time 10 http://127.0.0.1:$LEMONADE_HOST_PORT/live 2>/dev/null || echo 'FAILED')"
     if [[ "$lemonade_resp" != "FAILED" ]]; then
         info "✅ Lemonade Web UI healthy at http://127.0.0.1:$LEMONADE_HOST_PORT"
     else
-        warn "⚠  Lemonade Web UI did not respond"
+        warn "⚠️  Lemonade Web UI did not respond on http://127.0.0.1:$LEMONADE_HOST_PORT"
     fi
 
+    # Show container status
     log ""
     lxc list --project "$PROJECT"
     log ""
 
+    # Show device config
     log "Container devices:"
     lxc config device list "$CT_NAME" --project "$PROJECT"
     log ""
 
+    # Show running services inside container
     log "Services inside container:"
     exec_in_ct_root "systemctl is-active $LEMONADE_SERVICE_NAME" || true
     log ""
@@ -303,11 +328,14 @@ verify_endpoints() {
     log "========================================="
     log "  Lemonade Web UI:  http://127.0.0.1:$LEMONADE_HOST_PORT"
     log "  API:              http://127.0.0.1:$LEMONADE_HOST_PORT/api/v1"
+    log "  OpenAI compat:    curl -H \"Content-Type: application/json\" -d '{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}' http://127.0.0.1:$LEMONADE_HOST_PORT/v1/chat/completions"
     log ""
     log "  Pull a model:     lemonade pull Gemma-4-E2B-it-GGUF"
     log "  List models:      lemonade list"
     log "  Check backends:   lemonade backends"
     log ""
+    log "  Stop container:   lxc stop $CT_NAME --project $PROJECT"
+    log "  Start container:  lxc start $CT_NAME --project $PROJECT"
     log "========================================="
 }
 
@@ -318,24 +346,33 @@ verify_endpoints() {
 main() {
     require lxc
 
+    # --- LXD setup ---
     ensure_project
     ensure_container
     ensure_gpu_device
     ensure_model_mount
     ensure_proxy_devices
 
+    # --- Wait for container boot ---
     log "Waiting for container to boot..."
     sleep 5
     wait_for_network
 
+    # --- Purge stale NVIDIA packages (cloud-init may have installed them) ---
     purge_container_nvidia_runtime_conflicts
+
+    # --- Base system ---
     ensure_base_packages
 
+    # --- Lemonade Server (PPA) — no CUDA toolkit, no llama.cpp build needed ---
     install_lemonade_ppa
     configure_lemonade
     ensure_lemonade_service
 
+    # --- Start and verify ---
     start_and_verify_services
+
+    # --- Final verification ---
     verify_endpoints
 }
 
