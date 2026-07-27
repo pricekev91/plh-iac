@@ -71,7 +71,8 @@ iac-plh/
 
 Models placed in `/srv/ai/models` on the host are bind-mounted into the
 container at `/srv/ai/models`. Lemonade auto-discovers them when
-`models.path` is set to that directory.
+`models.path` is set to that directory (configured in
+`~/.config/lemonade/config.json`).
 
 Inside the container:
 ```bash
