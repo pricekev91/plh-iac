@@ -201,7 +201,7 @@ install_lemonade_ppa() {
     fi
 
     log "Adding lemonade-team PPA and installing lemonade-server"
-    exec_in_ct_root 'sudo add-apt-repository ppa:lemonade-team/stable'
+    exec_in_ct_root 'sudo add-apt-repository -y ppa:lemonade-team/stable'
     exec_in_ct_root 'DEBIAN_FRONTEND=noninteractive apt-get update'
     exec_in_ct_root 'DEBIAN_FRONTEND=noninteractive apt-get install -y lemonade-server'
 
