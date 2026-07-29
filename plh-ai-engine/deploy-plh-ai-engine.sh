@@ -433,28 +433,33 @@ ensure_switch_model() {
     # "error: invalid argument: \"". The new version builds a single-line
     # ExecStart using awk string concatenation (cmd=cmd " --foo") so there
     # are no stray quotes.
-    local local_script="$SCRIPTS_DIR/switch-model.sh"
+    local local_script="$SCRIPTS_DIR/plh-switch-model.sh"
     if [[ ! -f "$local_script" ]]; then
-        log "WARNING: switch-model.sh not found at $local_script, skipping"
+        log "WARNING: plh-switch-model.sh not found at $local_script, skipping"
         return 0
     fi
 
-    local ct_script="/usr/local/bin/switch-model.sh"
+    local ct_script="/usr/local/bin/plh-switch-model.sh"
     # Check if we need to update
     if lxc file read --project "$PROJECT" "$CT_NAME$ct_script" 2>/dev/null | md5sum | grep -q "$(md5sum "$local_script" | cut -d' ' -f1)"; then
-        log "switch-model.sh already up to date in container"
+        log "plh-switch-model.sh already up to date in container"
         return 0
     fi
 
-    log "Deploying switch-model.sh to container"
+    log "Deploying plh-switch-model.sh to container"
     lxc file push --project "$PROJECT" "$local_script" "$CT_NAME$ct_script"
     exec_in_ct "chmod +x $ct_script"
 
-    # Also place in /srv/ai/models/ where some tooling expects it
-    lxc file push --project "$PROJECT" "$local_script" "$CT_NAME/srv/ai/models/switch-model.sh"
-    exec_in_ct "chmod +x /srv/ai/models/switch-model.sh"
+    exec_in_ct "ln -sf $ct_script /usr/local/bin/switch-model.sh"
 
-    log "switch-model.sh deployed"
+    # Also place in /srv/ai/models/ where some tooling expects it.
+    # This is a host-mounted disk inside LXC, so chmod/chown can be denied by
+    # idmapping even for container root. Treat permission changes as best-effort.
+    lxc file push --project "$PROJECT" "$local_script" "$CT_NAME/srv/ai/models/plh-switch-model.sh"
+    exec_in_ct "test -x /srv/ai/models/plh-switch-model.sh || chmod +x /srv/ai/models/plh-switch-model.sh || true"
+    exec_in_ct "ln -sf /srv/ai/models/plh-switch-model.sh /srv/ai/models/switch-model.sh || true"
+
+    log "plh-switch-model.sh deployed"
 }
 
 main() {

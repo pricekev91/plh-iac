@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07
+
+### Added
+
+- Add canonical `scripts/plh-switch-model.sh` with GPU-first startup, OOM fallback, and chat endpoint probe.
+
+### Changed
+
+- Deploy `plh-switch-model.sh` to `/usr/local/bin` and maintain a compatibility symlink `switch-model.sh`.
+
+### Fixed
+
+- Prevent deploy failure on mounted `/srv/ai/models` when chmod/symlink operations are denied by LXC idmapped mount permissions.
+
 ## [0.2.3] - 2026-06
 
 ### Changed
