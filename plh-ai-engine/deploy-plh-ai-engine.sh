@@ -1,3 +1,4 @@
+
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -186,7 +187,13 @@ ensure_cuda_driver_lib() {
     # The CUDA toolkit inside the container ships only a stub libcuda.so
     # (in /usr/local/cuda-*/targets/*/lib/stubs/) that lacks Driver API
     # symbols (cuGetErrorString, cuMemCreate, etc.) needed by llama.cpp at
-    # link time.  Copy the real libcuda.so from the host NVIDIA driver.
+    # link time. Copy the real libcuda.so from the host NVIDIA driver.
+    #
+    # llama.cpp also uses NVML (libnvidia-ml.so) for VRAM queries. If NVML
+    # is missing in the container, cudaMemGetInfo / NVML calls will fail and
+    # llama.cpp will see 0/0 VRAM and abort. So we must also copy NVML.
+
+    # ---- libcuda.so (Driver API) ----
     local host_lib
     host_lib="$(ls /usr/lib/libcuda.so /usr/lib/x86_64-linux-gnu/libcuda.so 2>/dev/null | head -1)" || true
     if [[ -z "$host_lib" ]]; then
@@ -217,6 +224,29 @@ ensure_cuda_driver_lib() {
       fi"
 
     log "Host libcuda.so copied to container (stub replaced)"
+
+    # ---- NVML (libnvidia-ml.so, required for VRAM queries) ----
+    local host_nvml
+    host_nvml="$(ls \
+        /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.* \
+        /usr/lib/libnvidia-ml.so.* \
+        2>/dev/null | head -1)" || true
+
+    if [[ -z "$host_nvml" ]]; then
+        fail "Host NVML (libnvidia-ml.so.*) not found — install NVIDIA driver with NVML support"
+    fi
+
+    log "Copying host NVML ($(basename "$host_nvml")) to container for runtime VRAM queries"
+    lxc file push "$host_nvml" --project "$PROJECT" "$CT_NAME/usr/lib/$(basename "$host_nvml")"
+
+    # Inside the container, ensure both the SONAME and unversioned symlink exist
+    local nvml_base
+    nvml_base="$(basename "$host_nvml")"
+    exec_in_ct "ln -sf /usr/lib/$nvml_base /usr/lib/libnvidia-ml.so.1 2>/dev/null || true; \
+                ln -sf /usr/lib/libnvidia-ml.so.1 /usr/lib/libnvidia-ml.so 2>/dev/null || true; \
+                ldconfig"
+
+    log "Host NVML (libnvidia-ml.so) copied to container (VRAM queries will work)"
 }
 
 ensure_started() {
@@ -348,10 +378,10 @@ ensure_llama_cpp_installed() {
     # The CUDA toolkit stub libcuda.so lacks Driver API symbols needed at link
     # time — the real libcuda.so is copied from the host in ensure_cuda_driver_lib().
     # --no-install-recommends avoids nsight/GTK3/Java bloat.
-    local cuda_pkg_ver="${CT_CUDA_VER//./-}"
+    local cuda_pkg_ver2="${CT_CUDA_VER//./-}"
     exec_in_ct "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        cuda-nvcc-$cuda_pkg_ver cuda-cudart-dev-$cuda_pkg_ver \
-        libcublas-dev-$cuda_pkg_ver \
+        cuda-nvcc-$cuda_pkg_ver2 cuda-cudart-dev-$cuda_pkg_ver2 \
+        libcublas-dev-$cuda_pkg_ver2 \
         cmake build-essential git"
 
     log "Get latest llama.cpp from GitHub"
