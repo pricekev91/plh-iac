@@ -260,6 +260,31 @@ ensure_started() {
     fi
 }
 
+ensure_lab_root_ssh() {
+    # Lab-only behavior: allow root login via password over SSH.
+    # Root password is intentionally set manually after deploy.
+    wait_for_network
+
+    log "Ensuring OpenSSH server is installed inside container"
+    exec_in_ct "if ! dpkg -s openssh-server >/dev/null 2>&1; then \
+        DEBIAN_FRONTEND=noninteractive apt-get update && \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server; \
+    fi"
+
+    log "Writing lab SSH policy (PermitRootLogin + PasswordAuthentication)"
+    exec_in_ct "mkdir -p /etc/ssh/sshd_config.d"
+    cat <<'EOF' | lxc file push - --project "$PROJECT" "$CT_NAME/etc/ssh/sshd_config.d/99-lab-root-login.conf"
+PermitRootLogin yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+UsePAM yes
+EOF
+
+    log "Enabling and restarting SSH service"
+    exec_in_ct "systemctl enable --now ssh >/dev/null 2>&1 || systemctl enable --now sshd >/dev/null 2>&1 || true"
+    exec_in_ct "systemctl restart ssh >/dev/null 2>&1 || systemctl restart sshd >/dev/null 2>&1 || true"
+}
+
 exec_in_ct() {
     lxc exec "$CT_NAME" --project "$PROJECT" -- bash -lc "$*"
 }
@@ -525,6 +550,7 @@ main() {
     ensure_model_mount
     ensure_proxy_device
     ensure_started
+    ensure_lab_root_ssh
     purge_container_nvidia_runtime_conflicts
     ensure_cuda_driver_lib
     ensure_llama_cpp_installed
