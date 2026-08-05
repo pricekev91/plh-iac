@@ -126,9 +126,27 @@ ct_exists() {
     lxc info "$CT_NAME" --project "$PROJECT" >/dev/null 2>&1
 }
 
+confirm_existing_container_delete() {
+    local answer
+
+    printf '%s\n' 'Are you sure?  hlh-ai-engine is already running and deployed!'
+    printf '%s' 'Delete it and redeploy? [y/N] '
+    read -r answer
+
+    case "$answer" in
+        y|Y|yes|YES)
+            return 0
+            ;;
+        *)
+            fail "Aborted by user"
+            ;;
+    esac
+}
+
 ensure_container() {
     if ct_exists; then
-        log "Always-nuke mode: removing existing container $PROJECT/$CT_NAME"
+        confirm_existing_container_delete
+        log "Removing existing container $PROJECT/$CT_NAME"
         lxc stop "$CT_NAME" --project "$PROJECT" >/dev/null 2>&1 || true
         lxc delete --force "$CT_NAME" --project "$PROJECT"
     fi
